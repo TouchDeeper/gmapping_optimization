@@ -5,7 +5,8 @@
 #endif
 
 #include <omp.h>
-
+#include <Eigen/Core>
+#include <vector>
 
 /*
  * 这个文件中实现的是gridslamprocessor.h里面的三个内联函数
@@ -42,7 +43,49 @@ inline void GridSlamProcessor::scanMatch(const double* plainReading)
     /*矫正成功则更新位姿*/
     if (score>m_minimumScore)
     {
-      m_particles[i].pose = corrected;
+        m_particles[i].pose = corrected;
+
+        double pi=3.1415926;
+        int k=20;//采样数
+        std::vector<Eigen::Vector3d,Eigen::aligned_allocator<Eigen::Vector3d> > m_particles_k;//存放k个采样位姿的容器
+        std::vector<double> weight_k;//存放k个采样位姿的权重
+        weight_k.resize(k);
+        m_particles_k.resize(k);
+        // |x-x0|<δ中取样k个位姿
+        for(int j=0;j<k;j++) {
+            double r = 0.5 * sqrt(rand() / double(RAND_MAX));
+            double xita = 2 * pi * rand() / double(RAND_MAX);
+            double fai = pi * rand() / double(RAND_MAX);
+            double x_k = r * sin(fai) * cos(xita) + m_particles[i].pose.x;
+            double y_k = r * sin(fai) * sin(xita) + m_particles[i].pose.y;
+            double theta_k = r * cos(fai) + m_particles[i].pose.theta;
+            m_particles_k[j][0] = x_k;
+            m_particles_k[j][1] = y_k;
+            m_particles_k[j][2] = theta_k;
+            OrientedPoint pose_k(m_particles_k[j][0],m_particles_k[j][1],m_particles_k[j][2]); 
+            m_matcher.likelihoodAndScore(s, l, m_particles[i].map, pose_k, plainReading);
+            weight_k[j] = l;
+          }
+        // 拟合三元高斯分布
+        Eigen::Vector3d u(0,0,0);//高斯分布均值
+        double tita=0;
+        for(int j=0;j<k;j++)
+        {
+          u+=m_particles_k[j]*weight_k[j];
+          tita += weight_k[j];
+        }
+        u /= tita;
+        //计算协方差
+        Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
+        for(int j=0;j<k;j++)
+        {
+          cov += (m_particles_k[j]-u)*(m_particles_k[j]-u).transpose()*weight_k[j];
+        }
+        cov /= tita;
+        // 取均值作为该例子的位姿
+        OrientedPoint pose_u(u[0],u[1],u[2]);
+        m_matcher.likelihoodAndScore(s, l, m_particles[i].map, pose_u, plainReading);
+        
     }
     /*扫描匹配不上 则使用里程计的数据 使用里程计数据不进行更新  因为在进行扫描匹配之前 里程计已经更新过了*/
     else
@@ -54,6 +97,7 @@ inline void GridSlamProcessor::scanMatch(const double* plainReading)
             m_infoStream << "lp:" << m_lastPartPose.x << " "  << m_lastPartPose.y << " "<< m_lastPartPose.theta <<std::endl;
             m_infoStream << "op:" << m_odoPose.x << " " << m_odoPose.y << " "<< m_odoPose.theta <<std::endl;
         }
+        m_matcher.likelihoodAndScore(s, l, m_particles[i].map, m_particles[i].pose, plainReading);
     }
 
     //粒子的最优位姿计算了之后，重新计算粒子的权重(相当于粒子滤波器中的观测步骤，计算p(z|x,m))，粒子的权重由粒子的似然来表示。
@@ -62,8 +106,6 @@ inline void GridSlamProcessor::scanMatch(const double* plainReading)
      * 在论文中 粒子的权重不是用最优位姿的似然值来表示的。
      * 是用所有的似然值的和来表示的。
      */
-    m_matcher.likelihoodAndScore(s, l, m_particles[i].map, m_particles[i].pose, plainReading);
-
     sumScore+=score;
     m_particles[i].weight+=l;
     m_particles[i].weightSum+=l;
@@ -71,7 +113,7 @@ inline void GridSlamProcessor::scanMatch(const double* plainReading)
     //set up the selective copy of the active area
     //by detaching the areas that will be updated
     /*计算出来最优的位姿之后，进行地图的扩充  这里不会进行内存分配
-     *不进行内存分配的原因是这些粒子进行重采样之后有可能会消失掉，因此在后面进行冲采样的时候统一进行内存分配。
+     *不进行内存分配的原因是这些粒子进行重采样之后有可能会消失掉，因此在后面进行重采样的时候统一进行内存分配。
      *理论上来说，这里的操作是没有必要的，因为后面的重采样的时候还会进行一遍
      */
     m_matcher.invalidateActiveArea();

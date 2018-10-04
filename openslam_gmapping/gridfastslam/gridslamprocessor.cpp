@@ -367,12 +367,12 @@ void GridSlamProcessor::setMotionModelParameters
   {
     /**retireve the position from the reading, and compute the odometry*/
     /*得到当前的里程计的位置*/
-	OrientedPoint relPose=reading.getPose();
+	  OrientedPoint relPose=reading.getPose();
     //relPose.y = m_odoPose.y;
     
 	/*m_count表示这个函数被调用的次数 如果是第0次调用,则所有的位姿都是一样的*/
-	if (!m_count)
-	{
+	  if (!m_count)
+	  {
       m_lastPartPose=m_odoPose=relPose;
     }
     
@@ -503,7 +503,7 @@ void GridSlamProcessor::setMotionModelParameters
           if (m_count>0)
           {
             /*
-            为每个粒子进行scanMatch，计算出来每个粒子的最优位姿，同时计算改最优位姿的得分和似然  对应于gmapping论文中的用最近的一次测量计算proposal的算法
+            为每个粒子进行scanMatch，计算出来每个粒子的最优位姿，同时计算该最优位姿的得分和似然  对应于gmapping论文中的用最近的一次测量计算proposal的算法
             这里面除了进行scanMatch之外，还对粒子进行了权重的计算，并计算了粒子的有效区域 但不进行内存分配 内存分配在resample()函数中
             这个函数在gridslamprocessor.hxx里面。
             */
